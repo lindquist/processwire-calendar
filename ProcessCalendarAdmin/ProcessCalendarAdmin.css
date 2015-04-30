@@ -1,0 +1,76 @@
+/**
+ * This optional CSS file is only loaded when the ProcessHello module is run
+ *
+ * Remove it if you have no CSS styles to add. 
+ *
+ */
+
+#CalendarAdmin-calendar {
+    max-width: 850px;
+    width: 90%;
+}
+
+#CalendarAdmin-tip {
+    display: none;
+    position: fixed;
+    width: 300px;
+    height: 150px;
+    border: 1px solid #000;
+    background: #fff;
+    z-index: 1000;
+}
+
+#CalendarAdmin-tip p {
+    margin: 5px 10px 5px 10px;
+    /*overflow: scroll;*/
+}
+
+.CalendarAdmin-loading {
+    background: #ffffff 10px 10px no-repeat url('images/ajax-loader.gif');
+    margin-left: 42px;
+    line-height: 52px;
+}
+
+/* new event dialog */
+
+#CalendarAdmin-new-event-dialog {
+    display: none;
+    padding: 15px;
+}
+
+#CalendarAdmin-new-event-dialog input,
+#CalendarAdmin-new-event-dialog label {
+    display: block;
+}
+#CalendarAdmin-new-event-dialog label {
+    font-weight: bold;
+}
+
+#CalendarAdmin-new-event-dialog fieldset {
+    margin-top: 10px;
+}
+
+#CalendarAdmin-new-event-dialog .ca-ned-date {
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+/* edit event dialog */
+
+#CalendarAdmin-edit-event-dialog {
+    display: none;
+    padding: 15px;
+}
+
+/* notifications */
+
+#CalendarAdmin-notification {
+    margin: 20px;
+    color: black;
+}
+#CalendarAdmin-notification.success {
+    background: #ddffdd;
+}
+#CalendarAdmin-notification.error{
+    background: #ffdddd;
+}

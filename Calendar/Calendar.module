@@ -1,0 +1,296 @@
+<?php
+
+// sabre/vobject
+require_once('include_sabre.php');
+
+/**
+ * Class Calendar
+ *
+ * Implements the calendar logic needed by both the Calendar Admin as well as the frontend templates
+ * to query events without having to worry about recurrences or exceptions.
+ */
+class Calendar extends WireData implements Module {
+    public static function getModuleInfo() {
+        return array(
+            'title' => 'Calendar',
+            'version' => 100,
+            'summary' => 'Implements basic calendar logic',
+            'singular' => true,
+            'icon' => 'calendar',
+        );
+    }
+
+    // template/field names.
+    // edit before installing
+    const EVENT_TEMPLATE        = 'calendar-event';
+
+    const EVENT_START_FIELD     = 'calendar_event_start';
+    const EVENT_END_FIELD       = 'calendar_event_end';
+    const EVENT_RRULE_FIELD     = 'calendar_event_rrule';
+    const EVENT_EXDATE_FIELD    = 'calendar_event_exdate';
+
+    public function init() {
+        // do some initialization?
+    }
+
+    /**
+     * Expands recurring events and returns all events that occur in the interval given.
+     * Returns array of events, expanded for recurrences in the interval specified by the $start and $end parameters
+     * @param $start        Start date
+     * @param $until        End date
+     * @param $recur_limit  Maximum number of events to return
+     */
+    public function expandEvents($start, $until, $recur_limit = null) {
+        // TODO sabre/vobject doesn't do recur_limit :-/
+        if ($until === null && $recur_limit === null) {
+            throw new Exception("either limit number of occurrences or until date");
+        }
+        // some shortcuts
+        $pages = wire('pages');
+
+        // the timezone to use
+        // TODO make this configurable?
+        $tz = new DateTimeZone($this->config->timezone);
+
+        // get the timestamp of start of today (include events that have passed but was on this day!)
+        // TODO this behaviour should probably be configurable?
+        $begin_datetime = clone $start;
+        $until_datetime = clone $until;
+
+        // grab all recurring events
+        // as well as all non-recurring, future events
+        $sts = $start->getTimestamp();
+        //$event_pages = $pages->find("template=$this->event_template, ($this->event_rrule_field!=\"\"), ($this->event_start_field>=$sts)");
+        $sel = sprintf('template=%s, parent=%s, (%s!=""), (%s>=%s)',
+            self::EVENT_TEMPLATE, $this->calendar_root_page, self::EVENT_RRULE_FIELD, self::EVENT_START_FIELD, $sts);
+        $event_pages = $pages->find($sel);
+        if ($event_pages->count() == 0) {
+            return array();
+        }
+
+        // create Sabre VCalendar object
+        $vcal = new \Sabre\VObject\Component\VCalendar();
+        // eventmap is used to map event pages to vcalendar uids
+        $eventmap = array();
+
+        // go through each of event page, expand recurrences, eliminate exceptions
+        $results = array();
+
+        foreach($event_pages as $e) {
+            // start end timestamp
+            $event_start_timestamp = (int)$e->getUnformatted(self::EVENT_START_FIELD);
+            $event_end_timestamp = (int)$e->getUnformatted(self::EVENT_END_FIELD);
+
+            // start/end DateTime objects
+            $start_datetime = new DateTime();
+            $start_datetime->setTimestamp($event_start_timestamp);
+
+            $end_datetime = new DateTime();
+            $end_datetime->setTimestamp($event_end_timestamp);
+
+            // generate recurrences by the RRULE
+            $rrule = (string)$e->getUnformatted(self::EVENT_RRULE_FIELD);
+
+            // if the event is non-recurring (empty RRULE), then just put it in the results directly and move on to the
+            // next potentially recurring event
+            if ($rrule == '') {
+                $results[] = (object)array(
+                    'start' => $start_datetime->setTimezone($tz),
+                    'end'   => $end_datetime->setTimezone($tz),
+                    'event' => $e
+                );
+                // the rest is for recurrences
+                continue;
+            }
+
+            // alright it *is* recurring, so start out getting the event duration
+            $duration = $start_datetime->diff($end_datetime);
+
+            // get a list of dates
+            try {
+                // create VEVENT (sabre/vobject impl)
+                $uid = (string)\Sabre\VObject\UUIDUtil::getUUID();
+                $vevent = $vcal->add('VEVENT', [
+                    'DTSTART'   => $start_datetime,
+                    'DTEND'     => $end_datetime,
+                    'RRULE'     => $rrule,
+                    'UID'       => $uid
+                ]);
+                // map event pages to uid, sabre will fiddle with the properties so can't just store the page there
+                $eventmap[$uid] = $e;
+
+                // generate EXDATE field
+                $exdate = (string)$e->getUnformatted(self::EVENT_EXDATE_FIELD); // textarea
+                if ($exdate == '') {
+                    continue;
+                }
+
+                // collect dates here
+                $exdates = array();
+
+                // each exdate is a line in the field
+                foreach(explode("\n", $exdate) as $d) {
+                    $d = trim($d);
+                    if ($d == '') {
+                        continue;
+                    }
+                    $exdates[] = date_create_from_format('Y-m-d H:i', $d);
+                }
+                if (!empty($exdates)) {
+                    $vevent->add('EXDATE', $exdates);
+                }
+
+            }
+            catch(Exception $e) {
+                // failed - skip event completely
+                $this->error($e->getMessage());
+                continue;
+            }
+
+        }
+
+        // call the VCALENDAR expand method to do the actual expanding of the events
+        // TODO would be nice with LIMIT feature
+        $vcal->expand($begin_datetime, $until_datetime);
+
+        // iterate the results and generate return array
+        if ($vcal->VEVENT) {
+            foreach($vcal->VEVENT as $e) {
+                $start = clone $e->DTSTART->getDateTime();
+                $end = clone $e->DTEND->getDateTime();
+
+                // append event instance to results
+                $results[] = (object)array(
+                    'start' => $start->setTimezone($tz),
+                    'end'   => $end->setTimezone($tz),
+                    'event' => $eventmap[(string)$e->UID]
+                );
+            }
+        }
+
+        // that's it, now all the recurring events are in the $results array
+        // so start out by sorting that by start date
+
+        usort($results, array($this, 'event_sorter_callback'));
+
+        // return slice (recur limit parameter)
+        return array_slice($results, 0, $recur_limit);
+    }
+
+    private function event_sorter_callback($a, $b) {
+        if ($a == $b) {
+            return 0;
+        }
+        return ($a < $b) ? -1 : 1;
+    }
+
+    /**
+     * Called only when the module is installed
+     *
+     */
+    public function ___install() {
+        // create the fields
+
+        // add fieldgroup
+        $fg = $this->fieldgroups->get(self::EVENT_TEMPLATE);
+        if (empty($fg)) {
+            $this->message("Creating Template: " . self::EVENT_TEMPLATE);
+            $fg = new Fieldgroup();
+            $fg->name = self::EVENT_TEMPLATE;
+            $fg->add($this->fields->get('title'));
+            $fg->save();
+        }
+
+        $t = $this->templates->get(self::EVENT_TEMPLATE);
+        if (empty($t)) {
+            // add template
+            $t = new Template();
+            $t->name = self::EVENT_TEMPLATE;
+            $t->fieldgroup = $fg;
+            $t->noChildren = 1;
+            $t->save();
+        }
+
+        // add fields
+        $f = $this->fields->get(self::EVENT_START_FIELD);
+        if (empty($f)) {
+            $this->message("Creating Field: ".self::EVENT_START_FIELD);
+            $f = new Field();
+            $f->type = $this->modules->getModule('FieldtypeDatetime');
+            $f->name = self::EVENT_START_FIELD;
+            $f->label = $this->_('Event start date and time');
+            $f->dateInputFormat = 'Y-m-d';
+            $f->timeInputFormat = 'H:i';
+            $f->required = true;
+            $f->save();
+            $fg->add($f);
+            $fg->save();
+        }
+        $f = $this->fields->get(self::EVENT_END_FIELD);
+        if (empty($f)) {
+            $this->message("Creating Field: ".self::EVENT_END_FIELD);
+            $f = new Field();
+            $f->type = $this->modules->get('FieldtypeDatetime');
+            $f->name = self::EVENT_END_FIELD;
+            $f->label = $this->_('Event end date and time');
+            $f->dateInputFormat = 'Y-m-d';
+            $f->timeInputFormat = 'H:i';
+            $f->required = true;
+            $f->save();
+            $fg->add($f);
+            $fg->save();
+        }
+        $f = $this->fields->get(self::EVENT_RRULE_FIELD);
+        if (empty($f)) {
+            $this->message("Creating Field: ".self::EVENT_RRULE_FIELD);
+            $f = new Field();
+            $f->type = $this->modules->get('FieldtypeText');
+            $f->name = self::EVENT_RRULE_FIELD;
+            $f->label = $this->_('Event RRULE describing recurrences');
+            $f->description = $this->_('Must be in RFC5545 RRULE format (!)');
+            $f->save();
+            $fg->add($f);
+            $fg->save();
+        }
+        $f = $this->fields->get(self::EVENT_EXDATE_FIELD);
+        if (empty($f)) {
+            $this->message("Creating Field: ".self::EVENT_EXDATE_FIELD);
+            $f = new Field();
+            $f->type = $this->modules->get('FieldtypeTextarea');
+            $f->name = self::EVENT_EXDATE_FIELD;
+            $f->label = $this->_('Event recurrence exceptions');
+            $f->description = $this->_('One exception per line in format YYYY-MM-DD HH:mm');
+            $f->save();
+            $fg->add($f);
+            $fg->save();
+        }
+    }
+
+    public function __uninstall() {
+        $t = $this->templates->get(self::EVENT_TEMPLATE);
+        if ($t->id) {
+            $this->message("Deleting Template: {$t->name}");
+            $t->delete();
+        }
+        $fg = $this->fieldgroups->get(self::EVENT_TEMPLATE);
+        if ($fg->id) {
+            $fg->delete();
+        }
+        $f = $this->fields->get(self::EVENT_START_FIELD);
+        if ($f->id) {
+            $f->delete();
+        }
+        $f = $this->fields->get(self::EVENT_END_FIELD);
+        if ($f->id) {
+            $f->delete();
+        }
+        $f = $this->fields->get(self::EVENT_RRULE_FIELD);
+        if ($f->id) {
+            $f->delete();
+        }
+        $f = $this->fields->get(self::EVENT_EXDATE_FIELD);
+        if ($f->id) {
+            $f->delete();
+        }
+    }
+}

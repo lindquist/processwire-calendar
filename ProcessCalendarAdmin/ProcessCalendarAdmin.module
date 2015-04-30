@@ -1,0 +1,410 @@
+<?php
+
+/**
+ * Calendar Admin Process Module
+ *
+ * A starting point skeleton from which to build your own Process module. 
+ * Process modules are used primarily for building admin applications and tools.
+ * This module also creates a page in the ProcessWire admin to run itself from.
+ * 
+ * How to use this to make your own Process module:
+ *
+ * 1. Rename the ProcessHello.module file to be Process[YourModuleName].module
+ * 2. Change the class name to be Process[YourModuleName]
+ * 3. Change the "const pageName" line at the top of the class to be your unique admin page name.
+ * 4. Modify and add to this module to make it do what you want. 
+ * 5. If your module needs its own CSS and/or JS files, rename those included to be the same as 
+ *    your module name and modify them to do whatever you want. If your module does NOT need 
+ *    CSS and/or JS files then delete them. 
+ * 6. Change all the text here to describe your module and update the README.md file.
+ * 7. Change the copyright line directly below to have your information.
+ * 8. When ready, post your module to GitHub and to modules.processwire.com!
+ *
+ * Copyright [year] by [your name]
+ *
+ *
+ * ProcessWire 2.x 
+ * Copyright (C) 2012 by Ryan Cramer 
+ * Licensed under GNU/GPL v2, see LICENSE.TXT
+ * 
+ * http://processwire.com
+ *
+ */
+
+class ProcessCalendarAdmin extends Process {
+
+	/**
+	 * Return information about this module (required)
+	 *
+	 */
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Calendar Admin',
+			'summary' => 'Provides an easy to use visual calendar admin page',
+			'author' => 'Tomas Lindquist Olsen',
+            'version' => 100,
+            'requires' => 'Calendar',
+            'icon' => 'calendar',
+            'permission' => 'calendar-page',
+            'permissions' => array(
+                'calendar-page' => 'Allow access to the calendar page.'
+                // TODO allow more fine grained access management
+            )
+        );
+	}
+
+    /**
+     * The name that will be used for the page this module creates
+     *
+     * It should be unique and the same (or similar) to the module name, but all lowercase.
+     * It should not be the same as any other ProcessWire admin page name.
+     *
+     */
+    const pageName = 'calendar-admin';
+
+	/**
+	 * This is an optional initialization function called before any execute functions.
+	 *
+	 */
+	public function init() {
+		parent::init(); // required
+
+        $this->config->styles->append( $this->config->urls->ProcessCalendarAdmin . 'fullcalendar/fullcalendar.css' );
+        $this->config->scripts->append( $this->config->urls->ProcessCalendarAdmin . 'fullcalendar/moment.min.js' );
+        $this->config->scripts->append( $this->config->urls->ProcessCalendarAdmin . 'fullcalendar/fullcalendar.min.js' );
+        $this->config->scripts->append( $this->config->urls->ProcessCalendarAdmin . 'scripts/jquery.blockUI.js' );
+
+        // grab template and field names
+        $this->calendar = $this->modules->getModule('Calendar');
+	}
+
+	/**
+	 * This function is executed when a page with your Process assigned is accessed. 
+ 	 *
+	 * This can be seen as your main or index function. You'll probably want to replace
+	 * everything in this function. 
+	 *
+	 */
+	public function ___execute() {
+
+        // is it ajax? then do that method
+        if ($this->config->ajax) {
+            return $this->executeAjax();
+        }
+
+        // normal request
+
+//		$this->message("This is an example of a message");
+//		$this->error("This is an example of a warning or error");
+//		$this->message("This is an example of a debug notice, only shown when debug mode is on", Notice::debug);
+
+        $out = <<<HTML
+<p>Hover the mouse over an event to see more details.</p>
+<p>Click an event for options.</p>
+<p>Click an empty space to add a new event.</p>
+<p>Recurring events are purple.</p>
+
+<div id="CalendarAdmin-notification"></div>
+
+<div id="CalendarAdmin-calendar"></div>
+
+<div id="CalendarAdmin-tip">
+    <p class="date"></p>
+    <p class="title"></p>
+    <p>(Click to edit event)</p>
+</div>
+
+<div id="CalendarAdmin-new-event-dialog">
+    <p class="ca-ned-date"></p>
+    <p>All event details can be edited afterwards by clicking the event in the calendar view</p>
+    <fieldset>
+        <label for="title">Title</label>
+        <input type="text" name="title" id="ca-ned-title" />
+        <label for="starttime">Start</label>
+        <input type="text" name="starttime" id="ca-ned-starttime" placeholder="HH:MM" />
+        <label for="endtime">End</label>
+        <input type="text" name="endtime" id="ca-ned-endtime" placeholder="HH:MM" />
+    </fieldset>
+</div>
+
+<div id="CalendarAdmin-edit-event-dialog">
+    <p>What do want to do?</p>
+</div>
+HTML;
+
+		return $out;
+	}
+
+    /**
+     * Handle AJAX requests
+     */
+    protected function executeAjax() {
+        // wire shortcuts
+        $input = $this->wire('input');
+        $pages = $this->wire('pages');
+
+        //////////////////////////////////////////////////////////////////////
+        // jsonEvents request (eg. fullcalendar)
+        if ($input->get('jsonEvents') == 1) {
+            // FIXME proper validation
+            if (is_null($input->get->start)) {
+                throw new WireException("start time not specified");
+            }
+            if (is_null($input->get->end)) {
+                throw new WireException("end time not specified");
+            }
+
+            // get date/time interval
+            $start_input = $input->get('start');
+            $end_input = $input->get('end');
+
+            // start / end dates
+            $start = new DateTime($start_input);
+            $end = new DateTime($end_input);
+
+            // generate a list of json events for fullcalendar
+            return $this->outputJsonEvents($start, $end);
+        }
+
+        //////////////////////////////////////////////////////////////////////
+        // new event request
+        else if ($input->get('newEvent') == 1) {
+
+            // check required parameters are present
+            if (empty($input->get->date)) {
+                throw new WireException("new event date not specified");
+            }
+            if (empty($input->get->start)) {
+                throw new WireException("new event start time not specified");
+            }
+            if (empty($input->get->end)) {
+                throw new WireException("new event end time not specified");
+            }
+            if (empty($input->get->title)) {
+                throw new WireException("new event title not specified");
+            }
+
+            // validate parameters
+            $input_date = DateTime::createFromFormat(DateTime::ISO8601, $input->get->date);
+            if ($input_date === false) {
+                throw new WireException("date not valid");
+            }
+            // make sure time is 00:00 for the date
+            $input_date->setTime(0,0,0);
+
+            $input_start = DateTime::createFromFormat('H:i', $input->get->start);
+            if ($input_start === false) {
+                throw new WireException("invalid start time");
+            }
+            $input_end = DateTime::createFromFormat('H:i', $input->get->end);
+            if ($input_end === false) {
+                throw new WireException("invalid end time");
+            }
+            if ($input_end <= $input_start) {
+                throw new WireException("negative event duration");
+            }
+            $input_title = $input->get->title;
+            if ($input_title == '') {
+                throw new WireException("empty title");
+            }
+
+            // get DateInterval of start and end relative to start date at 00:00
+            $start_midnight = clone $input_start;
+            $input_start_timeonly = $start_midnight->setTime(0,0,0)->diff($input_start);
+
+            $end_midnight = clone $input_end;
+            $input_end_timeonly = $end_midnight->setTime(0,0,0)->diff($input_end);
+
+            // process inputs
+            $start = clone $input_date;
+            $start = $start->add($input_start_timeonly);
+            $end = clone $input_date;
+            $end = $end->add($input_end_timeonly);
+
+            // create page
+            $page = new Page();
+
+            // configure event page
+            $page->template = Calendar::EVENT_TEMPLATE;
+
+            // put it the right place
+            $page->parent = $this->pages->get($this->calendar->calendar_root_page);
+
+            // sanitize the page name from the title
+            $page->name = $this->sanitizer->pageNameTranslate($input->get->title);
+            // just use the title directly
+            $page->title = $input->get->title;
+
+            // save the page (fixup name if needed)
+            $save_options = array(
+                'adjustName' => true // make sure it's get created if there's a name collision
+            );
+            if (!$page->save()) {
+                throw new WireException("failed to save page");
+            }
+
+            // now page exists, set the date fields (timestamps!)
+            $page->set(Calendar::EVENT_START_FIELD, $start->getTimestamp());
+            $page->set(Calendar::EVENT_END_FIELD, $end->getTimestamp());
+            // and save again
+            $page->save();
+
+            // return the page id
+            header('Content-type: application/json');
+            return json_encode(array('id'=>$page->id));
+        }
+
+        //////////////////////////////////////////////////////////////////////
+        // delete event request
+        else if ($input->get('deleteEvent') == 1) {
+            // validate
+            if (empty($input->get->eventid)) {
+                throw new WireException('event id not specified');
+            }
+            $eid = $input->get->eventid;
+            if ((string)(int)$eid != $eid) {
+                throw new WireException('invalid event id');
+            }
+            // get page
+            $e = $pages->get($eid);
+            // make sure it is an event!
+            if ($e->template != Calendar::EVENT_TEMPLATE) {
+                throw new WireException('invalid event template');
+            }
+
+            // ok delete it (!)
+            $pages->delete($e);
+
+            header('Content-type: application/json');
+            return json_encode(array('success'=>true));
+        }
+
+        //////////////////////////////////////////////////////////////////////
+        // add exception
+        else if ($input->get('addExDate') == 1) {
+            // validate
+            if (empty($input->get->eventid)) {
+                throw new WireException('event id not specified');
+            }
+            if (empty($input->get->datetime)) {
+                throw new WireException('date and time not specified');
+            }
+
+            // id
+            $eid = $input->get->eventid;
+            if ((string)(int)$eid != $eid) {
+                throw new WireException('invalid event id');
+            }
+            // date
+            $date = DateTime::createFromFormat('Y-m-d H:i', $input->get->datetime);
+            if ($date === false) {
+                throw new WireException("invalid exdate");
+            }
+
+            // get page
+            $e = $pages->get($eid);
+            // make sure it is an event!
+            if ($e->template != Calendar::EVENT_TEMPLATE) {
+                throw new WireException('invalid event template');
+            }
+
+            // add exception
+            $str = $e->get(Calendar::EVENT_EXDATE_FIELD);
+            $str .= "\n";
+            $str .= $date->format('Y-m-d H:i');
+            $e->set(Calendar::EVENT_EXDATE_FIELD, $str);
+            $e->save(Calendar::EVENT_EXDATE_FIELD);
+
+            header('Content-type: application/json');
+            return json_encode(array('success'=>true));
+        }
+
+        //////////////////////////////////////////////////////////////////////
+        // guess it's not going to work out :-(
+        throw new WireException("unknown calendar admin ajax request");
+    }
+
+    /**
+     * Called only when your module is installed
+     *
+     * This version creates a new page with this Process module assigned.
+     *
+     */
+    public function ___install() {
+
+        //
+        // create the admin page the module will be assigned to
+        //
+        $page = new Page();
+        $page->template = 'admin';
+        $page->name = self::pageName;
+
+        //
+        // add page in admin setup
+        //
+        $page->parent = $this->pages->get($this->config->adminRootPageID);
+        // assign this process !
+        $page->process = $this;
+
+        // we will make the page title the same as our module title
+        $info = self::getModuleInfo();
+        $page->title = 'Calendar';
+
+        // save the page
+        $page->save();
+
+        // tell the user we created this page
+        $this->message("Created Page: {$page->path}");
+    }
+
+    /**
+     * Called only when your module is uninstalled
+     *
+     * This should return the site to the same state it was in before the module was installed.
+     *
+     */
+    public function ___uninstall() {
+
+        // find the page we installed, locating it by the process field (which has the module ID)
+        // it would probably be sufficient just to locate by name, but this is just to be extra sure.
+        $moduleID = $this->modules->getModuleID($this);
+        $page = $this->pages->get("template=admin, process=$moduleID, name=" . self::pageName);
+
+        if($page->id) {
+            // if we found the page, let the user know and delete it
+            $this->message("Deleting Page: {$page->path}");
+            $page->delete();
+        }
+    }
+
+    /**
+     * Generate JSON event list for fullcalendar
+     */
+    protected function outputJsonEvents($start, $end) {
+        // generate events
+        $events = $this->calendar->expandEvents($start, $end);
+
+        // generate json event array
+        foreach($events as $e) {
+            $recurs = $e->event->get(Calendar::EVENT_RRULE_FIELD) != '';
+
+            $elem = array(
+                'title' => (string)$e->event->title,
+                'start' => $e->start->format(DateTime::ISO8601),
+                'end' => $e->end->format(DateTime::ISO8601),
+                'id' => (int)$e->event->id,
+                'recurrence' => $recurs ? 1 : 0
+            );
+            if ($recurs) {
+                $elem['color']='purple';
+            }
+
+            $json[] = $elem;
+        }
+
+        // TODO fix this - use new content type feature
+        header('Content-type: application/json');
+        return json_encode($json);
+    }
+	
+}
