@@ -128,7 +128,7 @@ class ProcessCalendarAdmin extends Process {
 </div>
 
 <div id="CalendarAdmin-edit-event-dialog">
-    <p>What do want to do?</p>
+    <p>What do you want to do?</p>
 </div>
 HTML;
 
