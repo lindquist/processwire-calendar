@@ -29,6 +29,58 @@ Then
 
 - Install ProcessCalendarAdmin for calendar admin gui.
 
+# example 1 - get events and
+ 
+When events are returned, a recurring event may generate many
+occurrences, so the results from Calender::expandEvents are
+array(start, end, page)
+
+```php
+// get module
+$calendar = wire('modules')->getModule('Calendar');
+// get upcoming events - 6 months ahead
+$start = new DateTime();
+$until = new DateTime();
+$until->add(new DateInterval('P6M'));
+$events = $calendar->expandEvents($start, $until);
+// render event
+echo '<table>';
+foreach($events as $event) {
+    echo '<tr>';
+    printf('<td>%s</td>', $event->start->format('Y-m-d H:i'));
+    printf('<td>%s</td>', $event->end->format('Y-m-d H:i'));
+    printf('<td>%s</td>', $event->event->title);
+    echo '</tr>';
+}
+echo '</table>';
+```
+
+# example 2 - ajax event loader
+
+simply do this in your template.
+
+calendar-event.php:
+```php
+// ajax event request !
+if ($config->ajax) {
+    // build array to json encode
+    $data = array(
+        'id'    => $page->id,
+        'title' => $page->get('title'),
+        'body'  => $page->get('body'),
+        'start' => $start->format(DateTime::ISO8601),
+        'end'   => $end->format(DateTime::ISO8601),
+        'recurs' => $page->calendar_event_rrule != '',
+        'linkurl'  => $page->page->url
+    );
+    // encode and output
+    header('Content-type: application/json');
+    echo json_encode($data);
+    return;
+}
+// handle normal event display or something
+```
+
 # important note
 
 Please note that the template and fields created when installing will not
