@@ -82,10 +82,10 @@ class Calendar extends WireData implements Module {
             $event_end_timestamp = (int)$e->getUnformatted(self::EVENT_END_FIELD);
 
             // start/end DateTime objects
-            $start_datetime = new DateTime();
+            $start_datetime = new \DateTime();
             $start_datetime->setTimestamp($event_start_timestamp);
 
-            $end_datetime = new DateTime();
+            $end_datetime = new \DateTime();
             $end_datetime->setTimestamp($event_end_timestamp);
 
             // generate recurrences by the RRULE

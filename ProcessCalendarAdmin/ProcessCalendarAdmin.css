@@ -26,7 +26,7 @@
 }
 
 .CalendarAdmin-loading {
-    background: #ffffff 10px 10px no-repeat url('images/ajax-loader.gif');
+    background: #ffffff 10px 10px no-repeat url("images/ajax-loader.gif");
     margin-left: 42px;
     line-height: 52px;
 }
@@ -60,6 +60,11 @@
 #CalendarAdmin-edit-event-dialog {
     display: none;
     padding: 15px;
+    text-align: center;
+}
+
+.ui-dialog-buttonpane.ui-widget-content .ui-dialog-buttonset {
+    text-align: center;
 }
 
 /* notifications */
@@ -71,6 +76,6 @@
 #CalendarAdmin-notification.success {
     background: #ddffdd;
 }
-#CalendarAdmin-notification.error{
+#CalendarAdmin-notification.error {
     background: #ffdddd;
 }

@@ -121,9 +121,9 @@ class ProcessCalendarAdmin extends Process {
         <label for="title">Title</label>
         <input type="text" name="title" id="ca-ned-title" />
         <label for="starttime">Start</label>
-        <input type="text" name="starttime" id="ca-ned-starttime" placeholder="HH:MM" />
+        <input type="time" name="starttime" id="ca-ned-starttime" />
         <label for="endtime">End</label>
-        <input type="text" name="endtime" id="ca-ned-endtime" placeholder="HH:MM" />
+        <input type="time" name="endtime" id="ca-ned-endtime"/>
     </fieldset>
 </div>
 
@@ -159,8 +159,8 @@ HTML;
             $end_input = $input->get('end');
 
             // start / end dates
-            $start = new DateTime($start_input);
-            $end = new DateTime($end_input);
+            $start = new \DateTime($start_input);
+            $end = new \DateTime($end_input);
 
             // generate a list of json events for fullcalendar
             return $this->outputJsonEvents($start, $end);
