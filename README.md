@@ -39,9 +39,9 @@ array(start, end, page)
 // get module
 $calendar = wire('modules')->getModule('Calendar');
 // get upcoming events - 6 months ahead
-$start = new DateTime();
-$until = new DateTime();
-$until->add(new DateInterval('P6M'));
+$start = new \DateTime();
+$until = new \DateTime();
+$until->add(new \DateInterval('P6M'));
 $events = $calendar->expandEvents($start, $until);
 // render event
 echo '<table>';
